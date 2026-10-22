@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>兔兔亂扭派對</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?display=swap">
+<style>
+/* Layout: the whole screen is one low-res pixel canvas split into a Warhol grid; nothing else on screen. Single committed neon look. */
+:root{
+  --void:#0d0018;
+  color-scheme:dark;
+}
+html,body{height:100%;overflow:hidden;background:var(--void)}
+body{user-select:none;-webkit-user-select:none;touch-action:manipulation;cursor:pointer;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+canvas{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges;
+  filter:saturate(1.5) contrast(1.15);transform-origin:50% 55%}
+</style>
+</head>
+<body>
+
+<canvas id="c" aria-label="一隻在跳舞的點陣粉紅兔子，點畫面會分裂成更多格"></canvas>
+
+<script>
+(() => {
+  const BPM = 128, BEAT = 60 / BPM;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const cv = document.getElementById('c'), g = cv.getContext('2d');
+
+  // ---------- pop-art palettes ----------
+  const PALS = [
+    {bg:['#ff2e93','#ffe500','#00e5ff'], fur:'#ffc4e1', inn:'#ff6fae', bow:'#ff4f8b', bowD:'#d81b60', out:'#3a0a2a'},
+    {bg:['#7a00ff','#ff7ad9','#00ffa3'], fur:'#ffd1ec', inn:'#ff5fa8', bow:'#ff7ab0', bowD:'#e0457f', out:'#1a0033'},
+    {bg:['#00e5ff','#ff3d00','#fff200'], fur:'#ff9ecb', inn:'#ff3d7f', bow:'#ff5c9a', bowD:'#d63a75', out:'#14002b'},
+    {bg:['#fff200','#ff00aa','#00c2ff'], fur:'#ffffff', inn:'#ff8fc2', bow:'#ff4fa3', bowD:'#cc2a7a', out:'#2a0020'},
+    {bg:['#00ff6a','#ff00e6','#1e00ff'], fur:'#ffb3f0', inn:'#ff4fd8', bow:'#ff6fa8', bowD:'#d94884', out:'#160026'},
+    {bg:['#ff6b00','#7dfcff','#ff0055'], fur:'#ffd6e8', inn:'#ff7aa8', bow:'#ff5893', bowD:'#d6346c', out:'#2b0010'},
+    {bg:['#1e00ff','#ff9de2','#c6ff00'], fur:'#ff8fd0', inn:'#ffd1ee', bow:'#ff7aa8', bowD:'#e04f83', out:'#0d0030'},
+    {bg:['#ff0055','#00ffd5','#ffe14d'], fur:'#ffc8de', inn:'#ff5c93', bow:'#ff4f8b', bowD:'#d81b60', out:'#2a0016'},
+  ];
+  const hex2u32 = h => { const n = parseInt(h.slice(1), 16); return (255 << 24 | (n & 255) << 16 | (n >> 8 & 255) << 8 | n >> 16) >>> 0; };
+  PALS.forEach(p => p.u = p.bg.map(hex2u32));
+
+  // ---------- pixel bunny sprite (built pixel by pixel, no anti-aliasing) ----------
+  const SW = 36, SH = 40;   // bust only: cut off below the shoulders
+  function buildSprite(p, earLean) {
+    const px = new Array(SW * SH).fill(null);
+    const set = (x, y, c) => { if (x >= 0 && y >= 0 && x < SW && y < SH) px[y * SW + x] = c; };
+    const ell = (cx, cy, rx, ry, c, shear = 0) => {
+      for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++)
+        for (let x = Math.floor(cx - rx - 6); x <= Math.ceil(cx + rx + 6); x++) {
+          const dx = (x + .5 - cx - shear * (y + .5 - cy)) / rx, dy = (y + .5 - cy) / ry;
+          if (dx * dx + dy * dy <= 1) set(x, y, c);
+        }
+    };
+    const ox = 1, oy = 1;
+    const FUR = '#ffe3ee', SHADE = '#ffd0e1', INNER = '#ffb8d0', BLUSH = '#ffa6c6', EYE = '#3d2230', MOUTH = '#a25475';
+    // soft rounded ears (lean changes per frame so they flop)
+    ell(ox + 12, oy + 11, 4.3, 9.5, FUR, -.18 + earLean);
+    ell(ox + 22, oy + 11, 4.3, 9.5, FUR, .18 + earLean);
+    ell(ox + 12, oy + 12, 1.7, 6.5, INNER, -.18 + earLean);
+    ell(ox + 22, oy + 12, 1.7, 6.5, INNER, .18 + earLean);
+    // chubby body, tiny feet and paws
+    ell(ox + 17, oy + 37, 9.5, 7, FUR);
+    ell(ox + 12, oy + 43.5, 3.4, 1.7, FUR);
+    ell(ox + 22, oy + 43.5, 3.4, 1.7, FUR);
+    ell(ox + 9.5, oy + 35.5, 2.1, 2.3, FUR);
+    ell(ox + 24.5, oy + 35.5, 2.1, 2.3, FUR);
+    // wide mochi head
+    ell(ox + 17, oy + 25, 14, 10.5, FUR);
+    // bean eyes
+    [[11,24],[12,24],[11,25],[12,25],[11,26],[12,26]].forEach(([x, y]) => set(ox + x, oy + y, EYE));
+    [[22,24],[23,24],[22,25],[23,25],[22,26],[23,26]].forEach(([x, y]) => set(ox + x, oy + y, EYE));
+    // blush
+    ell(ox + 8, oy + 29, 2.4, 1.3, BLUSH);
+    ell(ox + 27, oy + 29, 2.4, 1.3, BLUSH);
+    // tiny ω mouth
+    [[15,28],[16,29],[17,28],[18,29],[19,28]].forEach(([x, y]) => set(ox + x, oy + y, MOUTH));
+    // little bow tucked by the right ear
+    ell(ox + 22, oy + 16, 3, 2.2, p.bow);
+    ell(ox + 28, oy + 16, 3, 2.2, p.bow);
+    ell(ox + 25, oy + 16, 1.3, 1.4, p.bowD);
+    set(ox + 21, oy + 15, '#fff'); set(ox + 27, oy + 15, '#fff');
+    // outline pass
+    const out = px.slice();
+    for (let y = 0; y < SH; y++) for (let x = 0; x < SW; x++) {
+      if (px[y * SW + x]) continue;
+      for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx >= 0 && ny >= 0 && nx < SW && ny < SH && px[ny * SW + nx]) { out[y * SW + x] = '#c26a8c'; break; }
+      }
+    }
+    const c = document.createElement('canvas'); c.width = SW; c.height = SH;
+    const cx = c.getContext('2d');
+    out.forEach((col, i) => { if (col) { cx.fillStyle = col; cx.fillRect(i % SW, (i / SW) | 0, 1, 1); } });
+    return c;
+  }
+  PALS.forEach(p => p.frames = [buildSprite(p, -.12), buildSprite(p, .12)]);
+
+  // ---------- grid state ----------
+  const LEVELS = [1, 2, 3, 4, 5, 6];
+  let level = 0, palShift = 0, cells = [], W = 0, H = 0, img, buf;
+
+  function layout() {
+    const rows = LEVELS[level];
+    const aspect = innerWidth / innerHeight;
+    const cols = Math.max(1, Math.round(rows * aspect));
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    H = Math.min(Math.round(innerHeight * dpr), Math.max(200, rows * 100));
+    W = Math.round(H * aspect);
+    cv.width = W; cv.height = H;
+    g.imageSmoothingEnabled = false;
+    img = g.createImageData(W, H); buf = new Uint32Array(img.data.buffer);
+    cells = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const i = cells.length;
+      cells.push({
+        x0: Math.round(c * W / cols), x1: Math.round((c + 1) * W / cols),
+        y0: Math.round(r * H / rows), y1: Math.round((r + 1) * H / rows),
+        pal: (i * 3 + r) % PALS.length, mode: (i + r) % 4,
+        phase: rows === 1 ? 0 : Math.random() * Math.PI * 2, flip: (r + c) % 2 ? -1 : 1,
+      });
+    }
+  }
+  addEventListener('resize', layout);
+  layout();
+
+  // ---------- render loop ----------
+  const t0 = performance.now();
+  let lastT = 0;
+  function respawn(gh, anywhere) {
+    gh.dir = Math.random() < .5 ? 1 : -1;
+    gh.x = anywhere ? Math.random() : (gh.dir > 0 ? -.35 : 1.35);
+    gh.y = .1 + Math.random() * .8;
+    gh.size = .12 + Math.random() * .28;
+    gh.v = .08 + Math.random() * .32;
+    gh.wob = 1.5 + Math.random() * 3;
+    gh.seed = Math.random() * 10;
+    gh.pal = Math.floor(Math.random() * PALS.length);
+    return gh;
+  }
+  const ghosts = Array.from({length: 9}, () => respawn({}, true));
+  const PAD = 14, BW = SW + PAD * 2;
+  const bendCv = document.createElement('canvas'); bendCv.width = BW; bendCv.height = SH;
+  const bend = bendCv.getContext('2d');
+  const snap = v => Math.sign(v) * Math.pow(Math.abs(v), .5);   // sharp, poppy moves instead of smooth swaying
+  let punch = 0, lastBeat = -1;
+  function frame(now) {
+    const t = Math.max(0, now - t0) / 1000 * (reduce ? .3 : 1);
+    const beatF = t / BEAT, beat = Math.floor(beatF);
+    if (beat !== lastBeat) {
+      lastBeat = beat;
+      if (!reduce) { punch = 1; if (cells.length > 1) palShift++; }
+    }
+    punch *= .86;
+
+    // psychedelic backgrounds, per pixel
+    for (const cell of cells) {
+      const pal = PALS[(cell.pal + palShift) % PALS.length].u;
+      const cx = (cell.x0 + cell.x1) / 2, cy = (cell.y0 + cell.y1) / 2;
+      const sc = 40 / Math.min(cell.x1 - cell.x0, cell.y1 - cell.y0);
+      for (let y = cell.y0; y < cell.y1; y++) {
+        const dy = (y - cy) * sc, row = y * W;
+        for (let x = cell.x0; x < cell.x1; x++) {
+          const dx = (x - cx) * sc;
+          let v;
+          switch (cell.mode) {
+            case 0: v = Math.sqrt(dx * dx + dy * dy) * .5 - t * 4; break;                         // rings
+            case 1: v = Math.sqrt(dx * dx + dy * dy) * .35 + Math.atan2(dy, dx) * 1.9 - t * 3; break; // spiral
+            case 2: v = Math.atan2(dy, dx) * 3.8 + t * 2.5; break;                               // sunburst
+            default: v = (dx + Math.sin(dy * .25 + t * 3) * 3) * .25 + (dy * .25 | 0) - t;       // melty stripes
+          }
+          buf[row + x] = pal[((Math.floor(v) % 3) + 3) % 3];
+        }
+      }
+    }
+    g.putImageData(img, 0, 0);
+
+    // ghost bunnies drifting left and right behind the dancers
+    const dt = Math.min(.1, Math.max(0, t - lastT)); lastT = t;
+    g.save();
+    g.globalAlpha = .5;
+    for (const gh of ghosts) {
+      gh.x += gh.v * gh.dir * dt;
+      if (gh.x < -.4 || gh.x > 1.4) respawn(gh);
+      const sc = gh.size * H / SH;
+      const bob = Math.sin(t * gh.wob + gh.seed) * .03 * H;
+      g.save();
+      g.translate(gh.x * W, gh.y * H + bob);
+      g.rotate(Math.sin(t * gh.wob * 1.7 + gh.seed) * .25);
+      g.scale(sc * gh.dir, sc);
+      g.drawImage(PALS[gh.pal].frames[Math.floor(t * 3 + gh.seed) % 2], -SW / 2, -SH / 2);
+      g.restore();
+    }
+    g.restore();
+
+    // bunnies
+    for (const cell of cells) {
+      const p = PALS[(cell.pal + palShift) % PALS.length];
+      const cw = cell.x1 - cell.x0, ch = cell.y1 - cell.y0;
+      const fit = cells.length === 1 ? .72 : .82;
+      const s = Math.min(ch * fit / SH, cw * (cells.length === 1 ? .8 : .85) / SW);
+      const ph = beatF * Math.PI * 2 + cell.phase;   // one full left-right per beat
+      const sw = Math.sin(ph);
+      g.save();
+      g.beginPath(); g.rect(cell.x0, cell.y0, cw, ch); g.clip();
+      g.translate((cell.x0 + cell.x1) / 2, cell.y1 + 1);
+      g.rotate(snap(Math.sin(ph - 1.2)) * .07);
+      g.scale(s * cell.flip, s);
+      // S-curve: every row of pixels slides sideways on a wave that travels up the body,
+      // so shoulders go one way while the head snaps the other
+      const spr = p.frames[(Math.floor(beatF * 4) + (cell.flip > 0 ? 0 : 1)) % 2];
+      const A = cells.length === 1 ? 7 : 8;
+      bend.clearRect(0, 0, BW, SH);
+      for (let y = 0; y < SH; y++) {
+        const h = (SH - y) / SH;
+        const off = Math.round(A * snap(Math.sin(ph - h * 3.4)) * (.25 + h));
+        bend.drawImage(spr, 0, y, SW, 1, PAD + off, y, SW, 1);
+      }
+      g.drawImage(bendCv, -BW / 2, -SH);
+      g.restore();
+    }
+    cv.style.transform = `scale(${1 + punch * .045}) rotate(${(lastBeat % 2 ? 1 : -1) * punch * 1.2}deg)`;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---------- original synth groove (Web Audio, no audio files) ----------
+  let ac, master, next = 0, step = 0, noiseBuf;
+  const bass = [45, 45, 52, 45, 48, 48, 50, 52];
+  const lead = [69, 72, 76, 72, 74, 76, 79, 76, 72, 74, 72, 69, 67, 69, 72, 0];
+  const hz = m => 440 * Math.pow(2, (m - 69) / 12);
+  function env(n, t, a, peak, d) { n.gain.setValueAtTime(.0001, t); n.gain.exponentialRampToValueAtTime(peak, t + a); n.gain.exponentialRampToValueAtTime(.0001, t + d); }
+  function osc(t, type, f, vol, len, f2) {
+    const o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + len * .6);
+    env(gn, t, .004, vol, len); o.connect(gn).connect(master); o.start(t); o.stop(t + len + .02);
+  }
+  function hat(t, v) {
+    if (!noiseBuf) { noiseBuf = ac.createBuffer(1, ac.sampleRate * .1, ac.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+    const s = ac.createBufferSource(), f = ac.createBiquadFilter(), gn = ac.createGain();
+    s.buffer = noiseBuf; f.type = 'highpass'; f.frequency.value = 7000; env(gn, t, .001, v, .06);
+    s.connect(f).connect(gn).connect(master); s.start(t);
+  }
+  function horn() {
+    const t = ac.currentTime, f = ac.createBiquadFilter(), gn = ac.createGain();
+    f.type = 'lowpass'; f.frequency.value = 2400; f.connect(gn).connect(master);
+    [0, .14, .28].forEach((d, k) => {
+      const len = k === 2 ? .45 : .1;
+      [-9, 0, 7].forEach(det => {
+        const o = ac.createOscillator(), og = ac.createGain();
+        o.type = 'sawtooth'; o.frequency.setValueAtTime(466, t + d); o.frequency.linearRampToValueAtTime(440, t + d + len); o.detune.value = det;
+        env(og, t + d, .01, .16, len); o.connect(og).connect(f); o.start(t + d); o.stop(t + d + len + .05);
+      });
+    });
+    gn.gain.value = 1;
+  }
+  function schedule() {
+    const six = BEAT / 4, lv = LEVELS[level];
+    while (next < ac.currentTime + .12) {
+      const s = step % 64;
+      if (s % 4 === 0) osc(next, 'sine', 150, .9, .3, 45);
+      if (s % 4 === 2) hat(next, .3); else if (s % 2 === 1) hat(next, .12);
+      if (s % 2 === 0) osc(next, 'square', hz(bass[(s / 8 | 0) % 8]), .11, six * 1.6);
+      if (s % 4 === 0) { const n = lead[(s / 4) % 16]; if (n) osc(next, 'triangle', hz(n), .13, six * 3); }
+      if (lv >= 3 && s % 2 === 1) osc(next, 'square', hz([81, 84, 88, 86][s % 4 === 1 ? (s / 4 | 0) % 4 : ((s / 4 | 0) + 2) % 4]), .045, six);
+      if (lv >= 5 && s % 8 === 4) osc(next, 'sawtooth', 1200, .06, .12, 300);
+      next += six; step++;
+    }
+  }
+  function startAudio() {
+    try {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      master = ac.createGain(); master.gain.value = .45; master.connect(ac.destination);
+      const tNow = (performance.now() - t0) / 1000;
+      next = ac.currentTime + (BEAT - (tNow % BEAT));
+      setInterval(schedule, 25);
+    } catch (e) { ac = null; }
+  }
+
+  // ---------- tap = more bunnies ----------
+  let started = false;
+  addEventListener('pointerdown', () => {
+    if (!started) { started = true; startAudio(); }
+    level = (level + 1) % LEVELS.length;
+    layout(); punch = 1.6;
+    if (ac) horn();
+  });
+  addEventListener('keydown', e => {
+    if (e.key === 'm' && master) master.gain.value = master.gain.value ? 0 : .45;
+  });
+})();
+</script>
+
+</body>
+</html>
