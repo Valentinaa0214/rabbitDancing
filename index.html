@@ -29,8 +29,9 @@
 html,body{height:100%;overflow:hidden;background:var(--void)}
 body{user-select:none;-webkit-user-select:none;touch-action:manipulation;cursor:pointer;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
-canvas{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges;
+canvas{animation:fadein 1.2s ease-out both;position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges;
   filter:saturate(1.5) contrast(1.15);transform-origin:50% 55%}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
 </style>
 </head>
 <body>
@@ -164,6 +165,8 @@ canvas{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;i
   function frame(now) {
     const t = Math.max(0, now - t0) / 1000 * (reduce ? .3 : 1);
     const beatF = t / BEAT, beat = Math.floor(beatF);
+    const intro = Math.min(1, Math.max(0, (now - t0) / 1000 - .5) / 1.8);   // bunnies fade in after the background
+    const ease = 1 - Math.pow(1 - intro, 3);
     if (beat !== lastBeat) {
       lastBeat = beat;
       if (!reduce) { punch = 1; if (cells.length > 1) palShift++; }
@@ -195,7 +198,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;i
     // ghost bunnies drifting left and right behind the dancers
     const dt = Math.min(.1, Math.max(0, t - lastT)); lastT = t;
     g.save();
-    g.globalAlpha = .5;
+    g.globalAlpha = .5 * ease;
     for (const gh of ghosts) {
       gh.x += gh.v * gh.dir * dt;
       if (gh.x < -.4 || gh.x > 1.4) respawn(gh);
@@ -222,7 +225,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;i
       g.beginPath(); g.rect(cell.x0, cell.y0, cw, ch); g.clip();
       g.translate((cell.x0 + cell.x1) / 2, cell.y1 + 1);
       g.rotate(snap(Math.sin(ph - 1.2)) * .07);
-      g.scale(s * cell.flip, s);
+      g.scale(s * cell.flip * (.75 + .25 * ease), s * (.75 + .25 * ease));
       // S-curve: every row of pixels slides sideways on a wave that travels up the body,
       // so shoulders go one way while the head snaps the other
       const spr = p.frames[(Math.floor(beatF * 4) + (cell.flip > 0 ? 0 : 1)) % 2];
@@ -233,6 +236,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;i
         const off = Math.round(A * snap(Math.sin(ph - h * 3.4)) * (.25 + h));
         bend.drawImage(spr, 0, y, SW, 1, PAD + off, y, SW, 1);
       }
+      g.globalAlpha = ease;
       g.drawImage(bendCv, -BW / 2, -SH);
       g.restore();
     }
@@ -294,10 +298,21 @@ canvas{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;i
     } catch (e) { ac = null; }
   }
 
+  // ---------- music starts on load; if the browser blocks autoplay, the first touch unlocks it ----------
+  startAudio();
+  let started = !!ac && ac.state === 'running';
+  function unlock() {
+    if (!ac || ac.state === 'running') return;
+    ac.resume().then(() => {
+      const tNow = (performance.now() - t0) / 1000;
+      next = ac.currentTime + (BEAT - (tNow % BEAT));
+    });
+  }
+  for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, unlock, {capture: true, passive: true});
+
   // ---------- tap = more bunnies ----------
-  let started = false;
   addEventListener('pointerdown', () => {
-    if (!started) { started = true; startAudio(); }
+    if (!started) { started = true; if (ac && ac.state !== 'running') return; }   // first tap just starts the music
     level = (level + 1) % LEVELS.length;
     layout(); punch = 1.6;
     if (ac) horn();
